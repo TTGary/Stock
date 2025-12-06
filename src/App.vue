@@ -285,8 +285,9 @@ export default {
         const [detailData, industry, marketData] = await Promise.all([
           Promise.race([
           this.fetchAShareDetail(code, marketPrefix),
-          new Promise((resolve) => setTimeout(() => resolve(null), 5000)) // 5秒超时
-        ]).catch(() => {
+          new Promise((resolve) => setTimeout(() => resolve(null), 8000)) // 8秒超时，给API更多时间
+        ]).catch((err) => {
+          console.warn('获取详细信息失败:', err.message)
           return null
           }),
           Promise.race([
@@ -426,38 +427,67 @@ export default {
         // 根据实际API返回数据，请求需要的字段
         // f84:总股本(股), f85:流通股本(股), f164:市盈率(TTM), f135:内盘(股), f136:外盘(股)
         const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
+        const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
         
         // 统一使用API路由（Vercel Serverless Functions或Vite代理）
         try {
           // 使用相对路径的API路由
           const apiUrl = `/api/eastmoney?url=api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
           const response = await axios.get(apiUrl, {
-            timeout: 8000 // 8秒超时
+            timeout: 10000 // 10秒超时，给API更多时间
           })
-          return response.data
+          // 检查响应数据
+          if (response.data) {
+            // 检查数据格式
+            if (response.data.data) {
+              return response.data
+            } else if (response.data.rc === 0 && response.data.data) {
+              // 某些API返回格式可能是 {rc: 0, data: {...}}
+              return response.data
+            } else {
+              console.warn('API返回数据格式异常:', response.data)
+              // 即使格式不对，也尝试返回
+              return response.data
+            }
+          }
+          throw new Error('API返回数据为空')
         } catch (err1) {
           // 备用方案：直接调用（如果CORS允许）
           try {
             const response = await axios.get(directUrl, {
               timeout: 8000 // 8秒超时
             })
-            return response.data
+            if (response.data && response.data.data) {
+              return response.data
+            }
+            throw new Error('直接调用返回数据格式错误')
           } catch (err2) {
             // 方法3: 再次尝试CORS代理（备用方案）
-            const proxyResponse = await this.fetchWithCorsProxies(directUrl, {
-              timeout: 8000 // 8秒超时
-            })
-            // 处理不同代理返回的数据格式
-            if (typeof proxyResponse.data === 'string') {
-              return JSON.parse(proxyResponse.data)
-            } else if (proxyResponse.data && proxyResponse.data.contents) {
-              return JSON.parse(proxyResponse.data.contents)
-            } else {
-              return proxyResponse.data
+            try {
+              const proxyResponse = await this.fetchWithCorsProxies(directUrl, {
+                timeout: 8000 // 8秒超时
+              })
+              // 处理不同代理返回的数据格式
+              let data
+              if (typeof proxyResponse.data === 'string') {
+                data = JSON.parse(proxyResponse.data)
+              } else if (proxyResponse.data && proxyResponse.data.contents) {
+                data = JSON.parse(proxyResponse.data.contents)
+              } else {
+                data = proxyResponse.data
+              }
+              if (data && data.data) {
+                return data
+              }
+              throw new Error('CORS代理返回数据格式错误')
+            } catch (err3) {
+              console.warn('获取详细信息失败:', err3.message)
+              return null
             }
           }
         }
       } catch (err) {
+        console.warn('fetchAShareDetail错误:', err.message)
         return null
       }
     },
@@ -716,8 +746,13 @@ export default {
         volumeRatio = marketData.volumeRatio || 0 // 量比(%)
       }
 
-      if (detailData && detailData.data) {
-        const d = detailData.data
+      // 检查detailData是否存在且有数据
+      if (detailData) {
+        // 处理不同的数据格式
+        const d = detailData.data || detailData
+        if (!d) {
+          console.warn('detailData格式错误:', detailData)
+        } else {
         
         // 总股本 - f84是股数
         totalShares = d.f84 || 0
@@ -739,13 +774,16 @@ export default {
         volumeFromAPI = d.f47 || 0 // 成交量（手）
         amountFromAPI = d.f48 || 0 // 成交额（元）
         
-        // 如果新API没有提供涨跌额和涨跌幅，尝试使用东方财富API的数据作为备选
-        if (!priceChange && d.f169) {
-          priceChange = d.f169
+          // 如果新API没有提供涨跌额和涨跌幅，尝试使用东方财富API的数据作为备选
+          if (!priceChange && d.f169) {
+            priceChange = d.f169
+          }
+          if (!priceChangePercent && d.f170) {
+            priceChangePercent = d.f170
+          }
         }
-        if (!priceChangePercent && d.f170) {
-          priceChangePercent = d.f170
-        }
+      } else {
+        console.warn('detailData为空，无法获取详细信息字段')
       }
 
       // 优先使用东方财富API的数据，如果没有则使用新浪数据
