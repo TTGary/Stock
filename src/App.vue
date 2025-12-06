@@ -113,6 +113,49 @@ export default {
     }
   },
   methods: {
+    // 尝试多个CORS代理服务获取数据
+    async fetchWithCorsProxies(targetUrl, options = {}) {
+      const proxies = [
+        // 代理1: allorigins.win (raw格式)
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        // 代理2: allorigins.win (get格式，返回JSON)
+        (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+        // 代理3: corsproxy.io
+        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        // 代理4: thingproxy (备用)
+        (url) => `https://thingproxy.freeboard.io/fetch/${url}`,
+      ]
+      
+      const defaultOptions = {
+        responseType: 'text',
+        timeout: 10000
+      }
+      const requestOptions = { ...defaultOptions, ...options }
+      
+      // 尝试每个代理
+      for (let i = 0; i < proxies.length; i++) {
+        try {
+          const proxyUrl = proxies[i](targetUrl)
+          const response = await axios.get(proxyUrl, requestOptions)
+          
+          // 处理 allorigins.win/get 格式的响应（返回JSON）
+          if (i === 1 && response.data && typeof response.data === 'object' && response.data.contents) {
+            return { ...response, data: response.data.contents }
+          }
+          
+          // 其他代理直接返回
+          return response
+        } catch (err) {
+          // 如果这是最后一个代理，抛出错误
+          if (i === proxies.length - 1) {
+            throw err
+          }
+          // 否则继续尝试下一个代理
+          continue
+        }
+      }
+    },
+    
     clearStockCode() {
       this.stockCode = ''
     },
@@ -193,11 +236,10 @@ export default {
       try {
         let response
         if (isProduction) {
-          // 生产环境：直接使用CORS代理
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://hq.sinajs.cn/list=${fullCode}`)}`
-          response = await axios.get(proxyUrl, {
+          // 生产环境：使用多个CORS代理（自动切换）
+          response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
             responseType: 'text',
-            timeout: 15000 // 15秒超时
+            timeout: 12000 // 12秒超时
           })
         } else {
           // 开发环境：使用Vite代理
@@ -245,12 +287,11 @@ export default {
         // 合并当前数据和历史数据（当前数据在前，历史数据在后）
         return [...currentData, ...enrichedHistoryData]
       } catch (err1) {
-        // 方法2: 使用CORS代理服务
+        // 方法2: 如果生产环境第一次失败，再次尝试CORS代理（备用方案）
         try {
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://hq.sinajs.cn/list=${fullCode}`)}`
-          const response = await axios.get(proxyUrl, {
+          const response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
             responseType: 'text',
-            timeout: 15000 // 15秒超时
+            timeout: 12000 // 12秒超时
           })
           if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
             throw new Error('股票代码不存在或数据获取失败')
@@ -363,12 +404,11 @@ export default {
         try {
           let response
           if (isProduction) {
-            // 生产环境：直接调用API（使用CORS代理）
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`
-            response = await axios.get(proxyUrl, {
+            // 生产环境：使用多个CORS代理
+            response = await this.fetchWithCorsProxies(directUrl, {
               timeout: 10000 // 10秒超时
             })
-            // allorigins返回的数据需要解析
+            // 解析返回的数据
             const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
             return data
           } else {
@@ -727,10 +767,9 @@ export default {
         // 生产环境直接使用CORS代理，开发环境使用Vite代理
         let response
         if (isProduction) {
-          // 生产环境：使用CORS代理
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`
-          response = await axios.get(proxyUrl, { timeout: 15000 })
-          // allorigins返回的数据需要解析
+          // 生产环境：使用多个CORS代理
+          response = await this.fetchWithCorsProxies(directUrl, { timeout: 12000 })
+          // 解析返回的数据
           const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
           
           if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
@@ -773,10 +812,17 @@ export default {
           // 合并当前数据和历史数据（当前数据在前，历史数据在后）
           return [...result, ...historyData]
         } catch (err2) {
-          // 方法3: 使用CORS代理
-          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`
-          const proxyResponse = await axios.get(proxyUrl, { timeout: 15000 })
-          const data = JSON.parse(proxyResponse.data.contents)
+          // 方法3: 使用多个CORS代理（备用方案）
+          const proxyResponse = await this.fetchWithCorsProxies(directUrl, { timeout: 12000 })
+          // 处理不同代理返回的数据格式
+          let data
+          if (typeof proxyResponse.data === 'string') {
+            data = JSON.parse(proxyResponse.data)
+          } else if (proxyResponse.data && proxyResponse.data.contents) {
+            data = JSON.parse(proxyResponse.data.contents)
+          } else {
+            data = proxyResponse.data
+          }
           
           if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
             throw new Error('未找到股票数据')
@@ -1040,12 +1086,11 @@ export default {
         // 生产环境直接使用CORS代理，开发环境使用Vite代理
         let response
         if (isProduction) {
-          // 生产环境：使用CORS代理
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`
-          response = await axios.get(proxyUrl, {
+          // 生产环境：使用多个CORS代理
+          response = await this.fetchWithCorsProxies(directUrl, {
             timeout: 10000
           })
-          // allorigins返回的数据需要解析
+          // 解析返回的数据
           response.data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
         } else {
           // 开发环境：使用Vite代理
@@ -1090,11 +1135,18 @@ export default {
               throw new Error('数据格式错误：响应数据为空')
             }
           } catch (err2) {
-            // 方法3: 使用CORS代理
+            // 方法3: 使用多个CORS代理（备用方案）
             try {
-              const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`)}`
-              const proxyResponse = await axios.get(proxyUrl, { timeout: 10000 })
-              const data = JSON.parse(proxyResponse.data.contents)
+              const proxyResponse = await this.fetchWithCorsProxies(directUrl, { timeout: 10000 })
+              // 处理不同代理返回的数据格式
+              let data
+              if (typeof proxyResponse.data === 'string') {
+                data = JSON.parse(proxyResponse.data)
+              } else if (proxyResponse.data && proxyResponse.data.contents) {
+                data = JSON.parse(proxyResponse.data.contents)
+              } else {
+                data = proxyResponse.data
+              }
               if (data && data.data) {
                 const result = this.parseHKStockDataFromEastMoney(data, code)
                 // 获取历史数据（29条）
