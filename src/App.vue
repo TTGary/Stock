@@ -422,6 +422,7 @@ export default {
 
     async fetchAShareDetail(code, marketPrefix) {
       // 从东方财富API获取完整的股票详细信息
+      // 注意：由于API限制，可能无法获取所有字段，但不影响主流程
       try {
         // 清理股票代码，确保是纯数字
         const cleanCode = code.replace(/\./g, '').replace(/[^0-9]/g, '')
@@ -429,89 +430,53 @@ export default {
         // 根据实际API返回数据，请求需要的字段
         // f84:总股本(股), f85:流通股本(股), f164:市盈率(TTM), f135:内盘(股), f136:外盘(股)
         const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
+        
         // 尝试使用不同的API端点和参数格式
-        // 方案1: 标准格式
-        const directUrl1 = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`
-        // 方案2: 简化格式（备用）
-        const directUrl2 = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`
+        // 方案1: 使用quote.eastmoney.com端点（可能更稳定）
+        const url1 = `https://quote.eastmoney.com/${marketPrefix}${cleanCode}.html`
+        // 方案2: 使用push2.eastmoney.com（标准格式）
+        const directUrl1 = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`
+        // 方案3: 使用push2his.eastmoney.com（历史数据API，可能包含基本信息）
+        const directUrl2 = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500000&lmt=1`
         
         // 统一使用API路由（Vercel Serverless Functions或Vite代理）
-        try {
-          // 使用相对路径的API路由（添加更多参数以提高成功率）
-          const apiUrl = `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`
-          const response = await axios.get(apiUrl, {
-            timeout: 10000 // 10秒超时，给API更多时间
-          })
-          // 检查响应数据
-          if (response.data) {
-            const apiResponse = response.data
-            // 检查返回码
-            if (apiResponse.rc === 0 && apiResponse.data) {
-              // 成功返回
-              return apiResponse
-            } else if (apiResponse.rc === 102 || apiResponse.data === null || apiResponse.data === undefined) {
-              // rc: 102 通常表示参数错误或数据不存在
-              console.warn('东方财富API返回错误码:', apiResponse.rc, '响应:', apiResponse)
-              // 不抛出错误，返回null，让调用者知道获取失败但不影响主流程
-              return null
-            } else if (apiResponse.data) {
-              // 有其他返回码但data存在（可能是其他成功码）
-              return apiResponse
-            } else {
-              // 数据格式异常，但没有明确的错误码
-              console.warn('API返回数据格式异常，返回码:', apiResponse.rc, '响应:', apiResponse)
-              return null
-            }
-          }
-          console.warn('API返回数据为空')
-          return null
-        } catch (err1) {
-          // 备用方案1：尝试简化格式的API
+        // 尝试多个API端点
+        const apiEndpoints = [
+          // 方案1: 标准格式（不带额外参数）
+          `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`,
+          // 方案2: 带ut参数
+          `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b`,
+        ]
+        
+        for (const apiUrl of apiEndpoints) {
           try {
-            const apiUrl2 = `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`
-            const response = await axios.get(apiUrl2, {
-              timeout: 8000 // 8秒超时
+            const response = await axios.get(apiUrl, {
+              timeout: 8000
             })
-            if (response.data && response.data.rc === 0 && response.data.data) {
-              return response.data
-            }
-            throw new Error('简化格式API也返回错误')
-          } catch (err2) {
-            // 备用方案2：直接调用（如果CORS允许）
-            try {
-              const response = await axios.get(directUrl1, {
-                timeout: 8000 // 8秒超时
-              })
-              if (response.data && response.data.data) {
-                return response.data
-              }
-              throw new Error('直接调用返回数据格式错误')
-            } catch (err3) {
-              // 方法3: 再次尝试CORS代理（备用方案）
-              try {
-                const proxyResponse = await this.fetchWithCorsProxies(directUrl1, {
-                  timeout: 8000 // 8秒超时
-                })
-              // 处理不同代理返回的数据格式
-              let data
-              if (typeof proxyResponse.data === 'string') {
-                data = JSON.parse(proxyResponse.data)
-              } else if (proxyResponse.data && proxyResponse.data.contents) {
-                data = JSON.parse(proxyResponse.data.contents)
-              } else {
-                data = proxyResponse.data
-              }
-              if (data && data.data) {
-                return data
-              }
-                throw new Error('CORS代理返回数据格式错误')
-              } catch (err4) {
-                console.warn('所有获取详细信息的方案都失败:', err4.message)
-                return null
+            
+            if (response.data) {
+              const apiResponse = response.data
+              // 检查返回码
+              if (apiResponse.rc === 0 && apiResponse.data) {
+                // 成功返回
+                return apiResponse
+              } else if (apiResponse.rc === 102 || apiResponse.data === null || apiResponse.data === undefined) {
+                // rc: 102 表示参数错误，继续尝试下一个端点
+                continue
+              } else if (apiResponse.data) {
+                // 有其他返回码但data存在
+                return apiResponse
               }
             }
+          } catch (err) {
+            // 继续尝试下一个端点
+            continue
           }
         }
+        
+        // 所有API端点都失败，返回null（不影响主流程）
+        console.warn('所有东方财富API端点都返回错误，详细信息字段将无法获取')
+        return null
       } catch (err) {
         console.warn('fetchAShareDetail错误:', err.message)
         return null
