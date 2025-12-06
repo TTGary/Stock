@@ -429,8 +429,11 @@ export default {
         // 根据实际API返回数据，请求需要的字段
         // f84:总股本(股), f85:流通股本(股), f164:市盈率(TTM), f135:内盘(股), f136:外盘(股)
         const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
-        // 尝试使用不同的API端点
-        const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`
+        // 尝试使用不同的API端点和参数格式
+        // 方案1: 标准格式
+        const directUrl1 = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`
+        // 方案2: 简化格式（备用）
+        const directUrl2 = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`
         
         // 统一使用API路由（Vercel Serverless Functions或Vite代理）
         try {
@@ -441,40 +444,54 @@ export default {
           })
           // 检查响应数据
           if (response.data) {
+            const apiResponse = response.data
             // 检查返回码
-            if (response.data.rc === 0 && response.data.data) {
+            if (apiResponse.rc === 0 && apiResponse.data) {
               // 成功返回
-              return response.data
-            } else if (response.data.rc === 102 || response.data.data === null) {
+              return apiResponse
+            } else if (apiResponse.rc === 102 || apiResponse.data === null || apiResponse.data === undefined) {
               // rc: 102 通常表示参数错误或数据不存在
-              console.warn('API返回错误码:', response.data.rc, '响应:', response.data)
-              // 尝试使用备用API或返回null
-              throw new Error(`API返回错误码: ${response.data.rc}`)
-            } else if (response.data.data) {
-              // 有其他返回码但data存在
-              return response.data
+              console.warn('东方财富API返回错误码:', apiResponse.rc, '响应:', apiResponse)
+              // 不抛出错误，返回null，让调用者知道获取失败但不影响主流程
+              return null
+            } else if (apiResponse.data) {
+              // 有其他返回码但data存在（可能是其他成功码）
+              return apiResponse
             } else {
-              console.warn('API返回数据格式异常:', response.data)
-              throw new Error('API返回数据格式异常')
+              // 数据格式异常，但没有明确的错误码
+              console.warn('API返回数据格式异常，返回码:', apiResponse.rc, '响应:', apiResponse)
+              return null
             }
           }
-          throw new Error('API返回数据为空')
+          console.warn('API返回数据为空')
+          return null
         } catch (err1) {
-          // 备用方案：直接调用（如果CORS允许）
+          // 备用方案1：尝试简化格式的API
           try {
-            const response = await axios.get(directUrl, {
+            const apiUrl2 = `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`
+            const response = await axios.get(apiUrl2, {
               timeout: 8000 // 8秒超时
             })
-            if (response.data && response.data.data) {
+            if (response.data && response.data.rc === 0 && response.data.data) {
               return response.data
             }
-            throw new Error('直接调用返回数据格式错误')
+            throw new Error('简化格式API也返回错误')
           } catch (err2) {
-            // 方法3: 再次尝试CORS代理（备用方案）
+            // 备用方案2：直接调用（如果CORS允许）
             try {
-              const proxyResponse = await this.fetchWithCorsProxies(directUrl, {
+              const response = await axios.get(directUrl1, {
                 timeout: 8000 // 8秒超时
               })
+              if (response.data && response.data.data) {
+                return response.data
+              }
+              throw new Error('直接调用返回数据格式错误')
+            } catch (err3) {
+              // 方法3: 再次尝试CORS代理（备用方案）
+              try {
+                const proxyResponse = await this.fetchWithCorsProxies(directUrl1, {
+                  timeout: 8000 // 8秒超时
+                })
               // 处理不同代理返回的数据格式
               let data
               if (typeof proxyResponse.data === 'string') {
@@ -487,10 +504,11 @@ export default {
               if (data && data.data) {
                 return data
               }
-              throw new Error('CORS代理返回数据格式错误')
-            } catch (err3) {
-              console.warn('获取详细信息失败:', err3.message)
-              return null
+                throw new Error('CORS代理返回数据格式错误')
+              } catch (err4) {
+                console.warn('所有获取详细信息的方案都失败:', err4.message)
+                return null
+              }
             }
           }
         }
@@ -755,12 +773,9 @@ export default {
       }
 
       // 检查detailData是否存在且有数据
-      if (detailData) {
+      if (detailData && detailData.data) {
         // 处理不同的数据格式
-        const d = detailData.data || detailData
-        if (!d) {
-          console.warn('detailData格式错误:', detailData)
-        } else {
+        const d = detailData.data
         
         // 总股本 - f84是股数
         totalShares = d.f84 || 0
@@ -782,16 +797,16 @@ export default {
         volumeFromAPI = d.f47 || 0 // 成交量（手）
         amountFromAPI = d.f48 || 0 // 成交额（元）
         
-          // 如果新API没有提供涨跌额和涨跌幅，尝试使用东方财富API的数据作为备选
-          if (!priceChange && d.f169) {
-            priceChange = d.f169
-          }
-          if (!priceChangePercent && d.f170) {
-            priceChangePercent = d.f170
-          }
+        // 如果新API没有提供涨跌额和涨跌幅，尝试使用东方财富API的数据作为备选
+        if (!priceChange && d.f169) {
+          priceChange = d.f169
+        }
+        if (!priceChangePercent && d.f170) {
+          priceChangePercent = d.f170
         }
       } else {
-        console.warn('detailData为空，无法获取详细信息字段')
+        // detailData为空或数据不存在，这些字段将保持为0或空字符串
+        console.warn('detailData为空或数据不存在，无法获取详细信息字段（总股本、流通股本等）')
       }
 
       // 优先使用东方财富API的数据，如果没有则使用新浪数据
