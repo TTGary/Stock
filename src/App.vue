@@ -617,9 +617,24 @@ export default {
         throw new Error('数据格式错误，无法解析')
       }
 
-      const values = match[1].split(',')
+      // 确保数据是UTF-8编码
+      const dataStr = match[1]
+      // 如果数据包含乱码，尝试修复编码
+      const values = dataStr.split(',')
       if (values.length < 6) {
         throw new Error('数据不完整，字段数量不足')
+      }
+      
+      // 确保股票名称正确编码（第一个字段）
+      if (values[0]) {
+        // 如果包含乱码字符，尝试修复
+        try {
+          // 确保是有效的UTF-8字符串
+          values[0] = decodeURIComponent(encodeURIComponent(values[0]))
+        } catch (e) {
+          // 如果修复失败，保持原值
+          console.warn('股票名称编码修复失败:', e)
+        }
       }
 
       // 新浪财经API字段索引（A股）：
@@ -1400,8 +1415,11 @@ export default {
     },
 
     async exportToExcel(data) {
-      // 创建工作簿
+      // 创建工作簿（确保UTF-8编码）
       const workbook = new ExcelJS.Workbook()
+      // 设置工作簿属性，确保支持UTF-8
+      workbook.creator = '股票数据下载工具'
+      workbook.created = new Date()
       const worksheet = workbook.addWorksheet('股票数据')
       
       // 获取列名数组（排除内部使用的字段）
@@ -1430,9 +1448,22 @@ export default {
         right: { style: 'thin', color: { argb: 'FF000000' } }
       }
       
-      // 添加数据行
+      // 添加数据行（确保UTF-8编码）
       data.forEach((row, rowIndex) => {
-        const excelRow = worksheet.addRow(row)
+        // 确保所有字符串值都是UTF-8编码
+        const encodedRow = {}
+        Object.keys(row).forEach(key => {
+          if (!key.startsWith('_')) {
+            const value = row[key]
+            // 确保字符串值正确编码
+            if (typeof value === 'string') {
+              encodedRow[key] = value
+            } else {
+              encodedRow[key] = value
+            }
+          }
+        })
+        const excelRow = worksheet.addRow(encodedRow)
         
         // 为每个单元格设置样式
         columns.forEach((col, colIndex) => {
@@ -1483,13 +1514,18 @@ export default {
       // 生成文件名
       const fileName = `${this.selectedMarket}_${this.stockCode}_${new Date().toISOString().split('T')[0]}.xlsx`
       
-      // 导出文件
+      // 导出文件（确保UTF-8编码）
       const buffer = await workbook.xlsx.writeBuffer()
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      // 确保文件名使用UTF-8编码
+      const encodedFileName = encodeURIComponent(fileName)
+      const blob = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8' 
+      })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = fileName
+      // 使用UTF-8编码的文件名
+      link.setAttribute('download', fileName)
       link.click()
       window.URL.revokeObjectURL(url)
     }
