@@ -423,31 +423,39 @@ export default {
     async fetchAShareDetail(code, marketPrefix) {
       // 从东方财富API获取完整的股票详细信息
       try {
-        const secid = `${marketPrefix === 'sh' ? '1' : '0'}.${code}`
+        // 清理股票代码，确保是纯数字
+        const cleanCode = code.replace(/\./g, '').replace(/[^0-9]/g, '')
+        const secid = `${marketPrefix === 'sh' ? '1' : '0'}.${cleanCode}`
         // 根据实际API返回数据，请求需要的字段
         // f84:总股本(股), f85:流通股本(股), f164:市盈率(TTM), f135:内盘(股), f136:外盘(股)
         const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
-        const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+        // 尝试使用不同的API端点
+        const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`
         
         // 统一使用API路由（Vercel Serverless Functions或Vite代理）
         try {
-          // 使用相对路径的API路由
-          const apiUrl = `/api/eastmoney?url=api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+          // 使用相对路径的API路由（添加更多参数以提高成功率）
+          const apiUrl = `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`
           const response = await axios.get(apiUrl, {
             timeout: 10000 // 10秒超时，给API更多时间
           })
           // 检查响应数据
           if (response.data) {
-            // 检查数据格式
-            if (response.data.data) {
+            // 检查返回码
+            if (response.data.rc === 0 && response.data.data) {
+              // 成功返回
               return response.data
-            } else if (response.data.rc === 0 && response.data.data) {
-              // 某些API返回格式可能是 {rc: 0, data: {...}}
+            } else if (response.data.rc === 102 || response.data.data === null) {
+              // rc: 102 通常表示参数错误或数据不存在
+              console.warn('API返回错误码:', response.data.rc, '响应:', response.data)
+              // 尝试使用备用API或返回null
+              throw new Error(`API返回错误码: ${response.data.rc}`)
+            } else if (response.data.data) {
+              // 有其他返回码但data存在
               return response.data
             } else {
               console.warn('API返回数据格式异常:', response.data)
-              // 即使格式不对，也尝试返回
-              return response.data
+              throw new Error('API返回数据格式异常')
             }
           }
           throw new Error('API返回数据为空')
