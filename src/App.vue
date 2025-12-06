@@ -186,12 +186,26 @@ export default {
 
       const fullCode = `${marketPrefix}${code}`
       
-      // 方法1: 使用Vite代理
+      // 生产环境直接使用CORS代理，开发环境使用Vite代理
+      const isProduction = import.meta.env.PROD
+      
+      // 方法1: 开发环境使用Vite代理，生产环境使用CORS代理
       try {
-        const response = await axios.get(`/api/sina/list=${fullCode}`, {
-          responseType: 'text',
-          timeout: 10000 // 10秒超时
-        })
+        let response
+        if (isProduction) {
+          // 生产环境：直接使用CORS代理
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://hq.sinajs.cn/list=${fullCode}`)}`
+          response = await axios.get(proxyUrl, {
+            responseType: 'text',
+            timeout: 15000 // 15秒超时
+          })
+        } else {
+          // 开发环境：使用Vite代理
+          response = await axios.get(`/api/sina/list=${fullCode}`, {
+            responseType: 'text',
+            timeout: 10000 // 10秒超时
+          })
+        }
         if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
           throw new Error('股票代码不存在或数据获取失败')
         }
@@ -342,17 +356,32 @@ export default {
         // f84:总股本(股), f85:流通股本(股), f164:市盈率(TTM), f135:内盘(股), f136:外盘(股)
         const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
         
-        // 方法1: 使用Vite代理
+        const isProduction = import.meta.env.PROD
+        const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+        
+        // 生产环境直接调用API，开发环境使用Vite代理
         try {
-          const proxyUrl = `/api/eastmoney/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
-          const response = await axios.get(proxyUrl, {
-            timeout: 8000 // 8秒超时
-          })
-          return response.data
+          let response
+          if (isProduction) {
+            // 生产环境：直接调用API（使用CORS代理）
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`
+            response = await axios.get(proxyUrl, {
+              timeout: 10000 // 10秒超时
+            })
+            // allorigins返回的数据需要解析
+            const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+            return data
+          } else {
+            // 开发环境：使用Vite代理
+            const proxyUrl = `/api/eastmoney/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+            response = await axios.get(proxyUrl, {
+              timeout: 8000 // 8秒超时
+            })
+            return response.data
+          }
         } catch (err1) {
-          // 方法2: 直接调用东方财富API
+          // 备用方案：直接调用（如果CORS允许）
           try {
-            const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
             const response = await axios.get(directUrl, {
               timeout: 8000 // 8秒超时
             })
@@ -692,56 +721,73 @@ export default {
       const symbol = this.stockCode.trim().toUpperCase()
       const url = `/api/yahoo/v8/finance/chart/${symbol}?interval=1d&range=3mo`
       const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`
+      const isProduction = import.meta.env.PROD
       
       try {
-        // 方法1: 使用Vite代理
-        try {
-          const response = await axios.get(url, { timeout: 10000 })
-        const data = response.data
-        
-        if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
-          throw new Error('未找到股票数据')
-        }
-
+        // 生产环境直接使用CORS代理，开发环境使用Vite代理
+        let response
+        if (isProduction) {
+          // 生产环境：使用CORS代理
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`
+          response = await axios.get(proxyUrl, { timeout: 15000 })
+          // allorigins返回的数据需要解析
+          const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+          
+          if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+            throw new Error('未找到股票数据')
+          }
+          
           const result = this.parseUSStockData(data, symbol)
           // 获取历史数据（29条）
           const historyData = this.parseUSStockHistoryData(data, symbol)
           // 合并当前数据和历史数据（当前数据在前，历史数据在后）
           return [...result, ...historyData]
-        } catch (err1) {
-          // 方法2: 直接调用
-          try {
-            const response = await axios.get(directUrl, { timeout: 10000 })
+        } else {
+          // 开发环境：使用Vite代理
+          response = await axios.get(url, { timeout: 10000 })
           const data = response.data
           
           if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
             throw new Error('未找到股票数据')
           }
 
-            const result = this.parseUSStockData(data, symbol)
+          const result = this.parseUSStockData(data, symbol)
+          // 获取历史数据（29条）
+          const historyData = this.parseUSStockHistoryData(data, symbol)
+          // 合并当前数据和历史数据（当前数据在前，历史数据在后）
+          return [...result, ...historyData]
+        }
+      } catch (err1) {
+        // 方法2: 直接调用（备用方案）
+        try {
+          const response = await axios.get(directUrl, { timeout: 10000 })
+          const data = response.data
+          
+          if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+            throw new Error('未找到股票数据')
+          }
+
+          const result = this.parseUSStockData(data, symbol)
           // 获取历史数据（29条）
           const historyData = this.parseUSStockHistoryData(data, symbol)
           // 合并当前数据和历史数据（当前数据在前，历史数据在后）
           return [...result, ...historyData]
         } catch (err2) {
-            // 方法3: 使用CORS代理
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`
-            const proxyResponse = await axios.get(proxyUrl, { timeout: 15000 })
-            const data = JSON.parse(proxyResponse.data.contents)
-            
-            if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
-              throw new Error('未找到股票数据')
-            }
+          // 方法3: 使用CORS代理
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`
+          const proxyResponse = await axios.get(proxyUrl, { timeout: 15000 })
+          const data = JSON.parse(proxyResponse.data.contents)
+          
+          if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+            throw new Error('未找到股票数据')
+          }
 
-            const result = this.parseUSStockData(data, symbol)
+          const result = this.parseUSStockData(data, symbol)
           // 获取历史数据（29条）
           const historyData = this.parseUSStockHistoryData(data, symbol)
           // 合并当前数据和历史数据（当前数据在前，历史数据在后）
           return [...result, ...historyData]
-          }
         }
-      } catch (err) {
-        throw new Error('获取美股数据失败，请检查股票代码（如：AAPL、MSFT）')
       }
     },
 
@@ -987,29 +1033,43 @@ export default {
       const code = this.stockCode.trim().padStart(5, '0')
       const secid = `116.${code}` // 港股secid格式：116.00700
       const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
+      const isProduction = import.meta.env.PROD
+      const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
       
       try {
-        // 方法1: 使用Vite代理
-        try {
-          const response = await axios.get(`/api/eastmoney/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`, {
+        // 生产环境直接使用CORS代理，开发环境使用Vite代理
+        let response
+        if (isProduction) {
+          // 生产环境：使用CORS代理
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`
+          response = await axios.get(proxyUrl, {
+            timeout: 10000
+          })
+          // allorigins返回的数据需要解析
+          response.data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+        } else {
+          // 开发环境：使用Vite代理
+          response = await axios.get(`/api/eastmoney/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`, {
             timeout: 8000
           })
-          if (response.data && response.data.data) {
-            const result = this.parseHKStockDataFromEastMoney(response.data, code)
-            // 获取历史数据（29条）
-            const historyData = await Promise.race([
-              this.fetchHKStockHistoryData(code, 29),
-              new Promise((resolve) => setTimeout(() => resolve([]), 5000)) // 5秒超时
-            ]).catch(() => {
-              return []
-            })
-            // 合并当前数据和历史数据
-            const enrichedHistoryData = this.enrichHKHistoryData(historyData, result[0])
-            return [...result, ...enrichedHistoryData]
-          } else {
-            throw new Error('数据格式错误：响应数据为空')
-          }
-        } catch (err1) {
+        }
+        
+        if (response.data && response.data.data) {
+          const result = this.parseHKStockDataFromEastMoney(response.data, code)
+          // 获取历史数据（29条）
+          const historyData = await Promise.race([
+            this.fetchHKStockHistoryData(code, 29),
+            new Promise((resolve) => setTimeout(() => resolve([]), 5000)) // 5秒超时
+          ]).catch(() => {
+            return []
+          })
+          // 合并当前数据和历史数据
+          const enrichedHistoryData = this.enrichHKHistoryData(historyData, result[0])
+          return [...result, ...enrichedHistoryData]
+        } else {
+          throw new Error('数据格式错误：响应数据为空')
+        }
+      } catch (err1) {
           // 方法2: 直接调用
           try {
             const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
@@ -1055,9 +1115,6 @@ export default {
             }
           }
         }
-      } catch (err) {
-        throw new Error(`获取港股数据失败，请检查股票代码是否正确: ${err.message || ''}`)
-      }
     },
 
 
