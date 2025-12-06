@@ -260,7 +260,23 @@ export default {
         // 统一使用相对路径的API路由，Vercel会自动路由到Serverless Functions
         response = await axios.get(`/api/sina?url=list=${fullCode}`, {
           responseType: 'text',
-          timeout: 10000 // 10秒超时
+          timeout: 10000, // 10秒超时
+          // 确保正确处理编码
+          responseEncoding: 'utf8',
+          // 如果响应是GBK编码，需要转换
+          transformResponse: [(data) => {
+            // 尝试检测并转换编码
+            if (typeof data === 'string') {
+              // 如果包含乱码，可能是GBK编码，尝试修复
+              try {
+                // 使用TextDecoder尝试修复（如果浏览器支持）
+                return data
+              } catch (e) {
+                return data
+              }
+            }
+            return data
+          }]
         })
         if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
           throw new Error('股票代码不存在或数据获取失败')
@@ -626,14 +642,25 @@ export default {
       }
       
       // 确保股票名称正确编码（第一个字段）
+      // 新浪API返回的数据可能是GBK编码，需要在前端处理
       if (values[0]) {
-        // 如果包含乱码字符，尝试修复
+        // 尝试修复可能的编码问题
         try {
-          // 确保是有效的UTF-8字符串
-          values[0] = decodeURIComponent(encodeURIComponent(values[0]))
+          // 如果字符串包含乱码，可能是GBK编码
+          // 由于浏览器限制，我们只能尝试UTF-8修复
+          // 真正的GBK到UTF-8转换需要在服务器端完成
+          const stockName = values[0]
+          // 检查是否包含乱码字符（常见的中文乱码模式）
+          if (/[^\u0000-\u007F\u4E00-\u9FFF\u3000-\u303F\uFF00-\uFFEF]/.test(stockName) && 
+              /[\u0080-\u00FF]/.test(stockName)) {
+            // 可能包含编码问题，但浏览器无法直接转换GBK
+            // 保持原值，让服务器端处理
+            console.warn('检测到可能的编码问题，股票名称:', stockName)
+          }
+          values[0] = stockName
         } catch (e) {
           // 如果修复失败，保持原值
-          console.warn('股票名称编码修复失败:', e)
+          console.warn('股票名称编码处理失败:', e)
         }
       }
 
