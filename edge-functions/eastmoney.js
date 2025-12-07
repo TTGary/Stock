@@ -16,76 +16,36 @@ export async function onRequest({ request }) {
       })
     }
 
-    // 尝试多个API端点
-    const endpoints = [
-      `https://push2.eastmoney.com/${apiUrl}`,
-      `https://push2.eastmoney.com/${apiUrl}&ut=fa5fd1943c7b386f172d6893dbfba10b&wbp2u=|0|0|0|web`,
-    ]
-    
-    let lastError = null
-    for (const targetUrl of endpoints) {
-      try {
-        const response = await fetch(targetUrl, {
-          headers: {
-            'Referer': 'https://quote.eastmoney.com',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Origin': 'https://quote.eastmoney.com',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive'
-          }
-        })
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`)
-        }
-
-        const data = await response.json()
-        
-        // 如果返回rc:0且有数据，直接返回
-        if (data.rc === 0 && data.data) {
-          return new Response(JSON.stringify(data), {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json; charset=utf-8',
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Methods': 'GET, OPTIONS',
-              'Access-Control-Allow-Headers': 'Content-Type'
-            }
-          })
-        }
-        
-        // 如果返回rc不是0但有data，也返回（可能是其他成功码）
-        if (data.data) {
-          return new Response(JSON.stringify(data), {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json; charset=utf-8',
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Methods': 'GET, OPTIONS',
-              'Access-Control-Allow-Headers': 'Content-Type'
-            }
-          })
-        }
-        
-        // 如果返回rc:102，记录错误但继续尝试下一个端点
-        if (data.rc === 102) {
-          lastError = new Error(`API返回rc:102，数据不存在`)
-          continue
-        }
-        
-        // 其他情况，也继续尝试
-        lastError = new Error(`API返回异常: rc=${data.rc}`)
-        continue
-      } catch (err) {
-        lastError = err
-        continue
+    // 直接请求API，返回原始响应（让前端处理rc:102等错误码）
+    const targetUrl = `https://push2.eastmoney.com/${apiUrl}`
+    const response = await fetch(targetUrl, {
+      headers: {
+        'Referer': 'https://quote.eastmoney.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Origin': 'https://quote.eastmoney.com',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive'
       }
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
+
+    const data = await response.json()
     
-    // 所有端点都失败
-    throw lastError || new Error('所有API端点都失败')
+    // 直接返回API的原始响应，包括rc:102等错误码，让前端处理
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      }
+    })
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
