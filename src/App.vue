@@ -254,6 +254,7 @@ export default {
       // 检测部署环境
       const isProduction = import.meta.env.PROD
       const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
+      const isEdgeOnePages = isProduction && (window.location.hostname.includes('edgeone.cool') || window.location.hostname.includes('edgeone.ai'))
       
       // 方法1: 使用API代理或CORS代理
       try {
@@ -265,7 +266,7 @@ export default {
             timeout: 12000 // 12秒超时
           })
         } else {
-          // Netlify/Vercel环境：使用API路由
+          // EdgeOne Pages/Vercel/Netlify环境：使用API路由（边缘函数）
           response = await axios.get(`/api/sina?url=list=${fullCode}`, {
             responseType: 'text',
             timeout: 10000 // 10秒超时
@@ -317,8 +318,11 @@ export default {
           if (isGitHubPages) {
             // GitHub Pages：已经尝试过CORS代理，这里不再重复
             throw new Error('GitHub Pages环境：CORS代理已失败')
+          } else if (isEdgeOnePages) {
+            // EdgeOne Pages：边缘函数已失败，不再尝试CORS代理（避免CORS错误）
+            throw new Error('EdgeOne Pages环境：边缘函数已失败，请检查边缘函数配置')
           } else {
-            // Netlify/Vercel：尝试CORS代理作为备用
+            // Vercel/Netlify：尝试CORS代理作为备用
             response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
               responseType: 'text',
               timeout: 8000 // 8秒超时
