@@ -391,6 +391,19 @@ export default {
         
         let currentData
         try {
+          // 如果 marketData 为空，尝试从历史数据中获取换手率（仅作为备选）
+          if (!marketData && historyData && historyData.length > 0 && historyData[0]['换手率']) {
+            const trStr = historyData[0]['换手率'].toString().replace('%', '')
+            const turnoverRateFromHistory = parseFloat(trStr) || 0
+            if (turnoverRateFromHistory > 0) {
+              marketData = {
+                turnoverRate: turnoverRateFromHistory,
+                volumeRatio: 0, // 量比无法从历史数据获取，留空
+                priceChange: 0,
+                priceChangePercent: 0
+              }
+            }
+          }
           currentData = this.parseAShareData(response.data, code, detailData, industry, marketData)
           console.log('解析后的数据:', currentData)
         } catch (parseError) {
@@ -433,7 +446,7 @@ export default {
             new Promise((resolve) => setTimeout(() => resolve(null), 5000)) // 5秒超时
           ]).catch(() => {
             return null
-            }),
+          }),
             Promise.race([
               this.fetchAShareIndustry(code),
               new Promise((resolve) => setTimeout(() => resolve(''), 3000)) // 3秒超时
@@ -455,6 +468,20 @@ export default {
           ]).catch(() => {
             return []
           })
+          
+          // 如果 marketData 为空，尝试从历史数据中获取换手率（仅作为备选）
+          if (!marketData && historyData && historyData.length > 0 && historyData[0]['换手率']) {
+            const trStr = historyData[0]['换手率'].toString().replace('%', '')
+            const turnoverRateFromHistory = parseFloat(trStr) || 0
+            if (turnoverRateFromHistory > 0) {
+              marketData = {
+                turnoverRate: turnoverRateFromHistory,
+                volumeRatio: 0, // 量比无法从历史数据获取，留空
+                priceChange: 0,
+                priceChangePercent: 0
+              }
+            }
+          }
           
           const currentData = this.parseAShareData(response.data, code, detailData, industry, marketData)
           // 将实时数据的基本信息填充到历史数据中
