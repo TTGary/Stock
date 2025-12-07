@@ -14,6 +14,10 @@
       "dest": "/edge-functions/eastmoney.js"
     },
     {
+      "src": "/api/mairui/(.*)",
+      "dest": "/edge-functions/mairui.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }

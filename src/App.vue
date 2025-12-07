@@ -254,6 +254,7 @@ export default {
       // 检测部署环境
       const isProduction = import.meta.env.PROD
       const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
+      const isVercel = isProduction && (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('vercel.com'))
       const isEdgeOnePages = isProduction && (window.location.hostname.includes('edgeone.cool') || window.location.hostname.includes('edgeone.ai'))
       
       // 方法1: 使用API代理或CORS代理
@@ -265,8 +266,14 @@ export default {
             responseType: 'text',
             timeout: 12000 // 12秒超时
           })
+        } else if (isVercel) {
+          // Vercel环境：使用Serverless Functions（已处理GBK编码）
+          response = await axios.get(`/api/sina?url=list=${fullCode}`, {
+            responseType: 'text',
+            timeout: 10000 // 10秒超时
+          })
         } else {
-          // EdgeOne Pages/Vercel/Netlify环境：使用API路由（边缘函数）
+          // EdgeOne Pages环境：使用边缘函数（需要处理ArrayBuffer）
           try {
             response = await axios.get(`/api/sina?url=list=${fullCode}`, {
               responseType: 'arraybuffer', // 接收二进制数据
@@ -462,20 +469,23 @@ export default {
 
     async fetchAShareIndustry(code) {
       // 从API获取行业信息
-      // 在 EdgeOne Pages 环境下，直接返回空字符串（避免 CORS 错误）
       const isProduction = import.meta.env.PROD
       const isEdgeOnePages = isProduction && (window.location.hostname.includes('edgeone.cool') || window.location.hostname.includes('edgeone.ai'))
       
-      if (isEdgeOnePages) {
-        // EdgeOne Pages 环境：跳过此 API 调用（避免 CORS 错误）
-        return ''
-      }
-      
       try {
-        const url = `https://api.mairuiapi.com/hszg/zg/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
-        const response = await axios.get(url, {
-          timeout: 5000
-        })
+        let response
+        if (isEdgeOnePages) {
+          // EdgeOne Pages 环境：使用边缘函数代理
+          response = await axios.get(`/api/mairui/industry/${code}`, {
+            timeout: 5000
+          })
+        } else {
+          // 其他环境：直接调用API
+          const url = `https://api.mairuiapi.com/hszg/zg/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
+          response = await axios.get(url, {
+            timeout: 5000
+          })
+        }
         
         if (response.data && Array.isArray(response.data)) {
           // 查找code以"sw2_"开头或name以"A股-申万二级-"开头的对象
@@ -498,20 +508,23 @@ export default {
 
     async fetchAShareMarketData(code) {
       // 从API获取市场数据（涨跌额、涨跌幅、换手率、量比等）
-      // 在 EdgeOne Pages 环境下，直接返回 null（避免 CORS 错误）
       const isProduction = import.meta.env.PROD
       const isEdgeOnePages = isProduction && (window.location.hostname.includes('edgeone.cool') || window.location.hostname.includes('edgeone.ai'))
       
-      if (isEdgeOnePages) {
-        // EdgeOne Pages 环境：跳过此 API 调用（避免 CORS 错误）
-        return null
-      }
-      
       try {
-        const url = `https://api.mairuiapi.com/hsrl/ssjy/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
-        const response = await axios.get(url, {
-          timeout: 5000
-        })
+        let response
+        if (isEdgeOnePages) {
+          // EdgeOne Pages 环境：使用边缘函数代理
+          response = await axios.get(`/api/mairui/market/${code}`, {
+            timeout: 5000
+          })
+        } else {
+          // 其他环境：直接调用API
+          const url = `https://api.mairuiapi.com/hsrl/ssjy/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
+          response = await axios.get(url, {
+            timeout: 5000
+          })
+        }
         
         if (response.data) {
           // 根据API返回的数据结构解析字段
@@ -552,6 +565,7 @@ export default {
         // 检测部署环境
         const isProduction = import.meta.env.PROD
         const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
+        const isVercel = isProduction && (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('vercel.com'))
         
         // 如果是GitHub Pages，直接使用CORS代理（因为GitHub Pages不支持Serverless Functions）
         if (isGitHubPages) {
@@ -591,14 +605,19 @@ export default {
           console.warn('GitHub Pages环境：所有CORS代理方案都失败')
           return null
         } else {
-          // Netlify/Vercel环境：使用API路由，尝试多个端点
+          // EdgeOne Pages/Vercel/Netlify环境：使用API路由，尝试多个端点
+          // 尝试不同的字段组合和参数格式
           const apiEndpoints = [
-            // 方案1: 标准格式（不带额外参数）
+            // 方案1: 标准格式（完整字段）
             `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`,
             // 方案2: 带ut参数
             `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b`,
-            // 方案3: 简化格式
+            // 方案3: 简化格式（只获取关键字段）
+            `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fields=f43,f57,f58,f164,f163,f167,f116,f117,f84,f85`,
+            // 方案4: 不带fltt和invt参数
             `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fields=${fields}`,
+            // 方案5: 使用更少的字段
+            `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fields=f43,f57,f58,f164,f167`,
           ]
           
           for (const apiUrl of apiEndpoints) {
@@ -993,6 +1012,7 @@ export default {
       // 检测部署环境
       const isProduction = import.meta.env.PROD
       const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
+      const isVercel = isProduction && (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('vercel.com'))
       const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`
       
       try {
@@ -1012,8 +1032,8 @@ export default {
           const historyData = this.parseUSStockHistoryData(data, symbol)
           // 合并当前数据和历史数据（当前数据在前，历史数据在后）
           return [...result, ...historyData]
-        } else {
-          // Netlify/Vercel环境：使用API路由
+        } else if (isVercel) {
+          // Vercel环境：使用Serverless Functions
           const apiUrl = `/api/yahoo?url=v8/finance/chart/${symbol}?interval=1d&range=3mo`
           response = await axios.get(apiUrl, { timeout: 10000 })
           const data = response.data
@@ -1314,6 +1334,7 @@ export default {
       // 检测部署环境
       const isProduction = import.meta.env.PROD
       const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
+      const isVercel = isProduction && (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('vercel.com'))
       const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
       
       try {
@@ -1333,8 +1354,14 @@ export default {
             data = proxyResponse.data
           }
           response = { data: data }
+        } else if (isVercel) {
+          // Vercel环境：使用Serverless Functions
+          const apiUrl = `/api/eastmoney?url=api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+          response = await axios.get(apiUrl, {
+            timeout: 8000
+          })
         } else {
-          // Netlify/Vercel环境：使用API路由
+          // EdgeOne Pages环境：使用边缘函数
           const apiUrl = `/api/eastmoney?url=api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
           response = await axios.get(apiUrl, {
             timeout: 8000
