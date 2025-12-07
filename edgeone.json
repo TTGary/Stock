@@ -1,0 +1,17 @@
+{
+  "routes": [
+    {
+      "src": "/api/sina",
+      "dest": "/edge-functions/sina.js"
+    },
+    {
+      "src": "/api/yahoo",
+      "dest": "/edge-functions/yahoo.js"
+    },
+    {
+      "src": "/api/eastmoney",
+      "dest": "/edge-functions/eastmoney.js"
+    }
+  ]
+}
+
