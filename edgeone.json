@@ -1,4 +1,5 @@
 {
+  "outputDirectory": "docs",
   "routes": [
     {
       "src": "/api/sina",
