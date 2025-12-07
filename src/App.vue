@@ -897,6 +897,11 @@ export default {
       // 从东方财富API详细信息中提取完整字段
       // 优先使用API获取的行业信息，如果没有则使用东方财富API的行业代码
       let industry = industryFromAPI || ''
+      
+      // 如果从mairui API获取行业信息失败，尝试从东方财富API获取
+      if (!industry && detailData && detailData.data && detailData.data.f107) {
+        industry = this.getIndustryName(detailData.data.f107)
+      }
       let totalShares = 0
       let tradableShares = 0
       let totalMarketValue = 0
