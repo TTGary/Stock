@@ -251,33 +251,26 @@ export default {
 
       const fullCode = `${marketPrefix}${code}`
       
-      // 生产环境使用Vercel API路由，开发环境使用Vite代理
+      // 检测部署环境
       const isProduction = import.meta.env.PROD
+      const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
       
-      // 方法1: 使用API代理（Vercel Serverless Functions或Vite代理）
+      // 方法1: 使用API代理或CORS代理
       try {
         let response
-        // 统一使用相对路径的API路由，Vercel会自动路由到Serverless Functions
-        response = await axios.get(`/api/sina?url=list=${fullCode}`, {
-          responseType: 'text',
-          timeout: 10000, // 10秒超时
-          // 确保正确处理编码
-          responseEncoding: 'utf8',
-          // 如果响应是GBK编码，需要转换
-          transformResponse: [(data) => {
-            // 尝试检测并转换编码
-            if (typeof data === 'string') {
-              // 如果包含乱码，可能是GBK编码，尝试修复
-              try {
-                // 使用TextDecoder尝试修复（如果浏览器支持）
-                return data
-              } catch (e) {
-                return data
-              }
-            }
-            return data
-          }]
-        })
+        if (isGitHubPages) {
+          // GitHub Pages环境：使用CORS代理（因为不支持Serverless Functions）
+          response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
+            responseType: 'text',
+            timeout: 12000 // 12秒超时
+          })
+        } else {
+          // Netlify/Vercel环境：使用API路由
+          response = await axios.get(`/api/sina?url=list=${fullCode}`, {
+            responseType: 'text',
+            timeout: 10000 // 10秒超时
+          })
+        }
         if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
           throw new Error('股票代码不存在或数据获取失败')
         }
@@ -318,12 +311,19 @@ export default {
         // 合并当前数据和历史数据（当前数据在前，历史数据在后）
         return [...currentData, ...enrichedHistoryData]
       } catch (err1) {
-        // 方法2: 如果API路由失败，尝试CORS代理（备用方案）
+        // 方法2: 备用方案（如果主方案失败）
         try {
-          const response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
-            responseType: 'text',
-            timeout: 8000 // 8秒超时
-          })
+          let response
+          if (isGitHubPages) {
+            // GitHub Pages：已经尝试过CORS代理，这里不再重复
+            throw new Error('GitHub Pages环境：CORS代理已失败')
+          } else {
+            // Netlify/Vercel：尝试CORS代理作为备用
+            response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
+              responseType: 'text',
+              timeout: 8000 // 8秒超时
+            })
+          }
           if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
             throw new Error('股票代码不存在或数据获取失败')
           }
@@ -439,43 +439,71 @@ export default {
         // 方案3: 使用push2his.eastmoney.com（历史数据API，可能包含基本信息）
         const directUrl2 = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500000&lmt=1`
         
-        // 统一使用API路由（Vercel Serverless Functions或Vite代理）
-        // 尝试多个API端点
-        const apiEndpoints = [
-          // 方案1: 标准格式（不带额外参数）
-          `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`,
-          // 方案2: 带ut参数
-          `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b`,
-        ]
+        // 检测部署环境
+        const isProduction = import.meta.env.PROD
+        const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
         
-        for (const apiUrl of apiEndpoints) {
+        // 如果是GitHub Pages，直接使用CORS代理（因为GitHub Pages不支持Serverless Functions）
+        if (isGitHubPages) {
+          // GitHub Pages环境：使用CORS代理
           try {
-            const response = await axios.get(apiUrl, {
-              timeout: 8000
+            const proxyResponse = await this.fetchWithCorsProxies(directUrl1, {
+              timeout: 10000
             })
-            
-            if (response.data) {
-              const apiResponse = response.data
-              // 检查返回码
-              if (apiResponse.rc === 0 && apiResponse.data) {
-                // 成功返回
-                return apiResponse
-              } else if (apiResponse.rc === 102 || apiResponse.data === null || apiResponse.data === undefined) {
-                // rc: 102 表示参数错误，继续尝试下一个端点
-                continue
-              } else if (apiResponse.data) {
-                // 有其他返回码但data存在
-                return apiResponse
-              }
+            // 处理不同代理返回的数据格式
+            let data
+            if (typeof proxyResponse.data === 'string') {
+              data = JSON.parse(proxyResponse.data)
+            } else if (proxyResponse.data && proxyResponse.data.contents) {
+              data = JSON.parse(proxyResponse.data.contents)
+            } else {
+              data = proxyResponse.data
+            }
+            if (data && data.rc === 0 && data.data) {
+              return data
             }
           } catch (err) {
-            // 继续尝试下一个端点
-            continue
+            console.warn('GitHub Pages环境：CORS代理获取详细信息失败:', err.message)
+            return null
+          }
+        } else {
+          // Netlify/Vercel环境：使用API路由
+          const apiEndpoints = [
+            // 方案1: 标准格式（不带额外参数）
+            `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`,
+            // 方案2: 带ut参数
+            `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b`,
+          ]
+          
+          for (const apiUrl of apiEndpoints) {
+            try {
+              const response = await axios.get(apiUrl, {
+                timeout: 8000
+              })
+              
+              if (response.data) {
+                const apiResponse = response.data
+                // 检查返回码
+                if (apiResponse.rc === 0 && apiResponse.data) {
+                  // 成功返回
+                  return apiResponse
+                } else if (apiResponse.rc === 102 || apiResponse.data === null || apiResponse.data === undefined) {
+                  // rc: 102 表示参数错误，继续尝试下一个端点
+                  continue
+                } else if (apiResponse.data) {
+                  // 有其他返回码但data存在
+                  return apiResponse
+                }
+              }
+            } catch (err) {
+              // 继续尝试下一个端点
+              continue
+            }
           }
         }
         
-        // 所有API端点都失败，返回null（不影响主流程）
-        console.warn('所有东方财富API端点都返回错误，详细信息字段将无法获取')
+        // 所有方案都失败，返回null（不影响主流程）
+        console.warn('所有获取详细信息的方案都失败，详细信息字段将无法获取')
         return null
       } catch (err) {
         console.warn('fetchAShareDetail错误:', err.message)
@@ -833,24 +861,44 @@ export default {
     async fetchUSStockData() {
       // 美股使用Yahoo Finance API（数据最丰富）
       const symbol = this.stockCode.trim().toUpperCase()
-      // 统一使用API路由（Vercel Serverless Functions或Vite代理）
+      // 检测部署环境
+      const isProduction = import.meta.env.PROD
+      const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
       const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`
       
       try {
-        // 使用相对路径的API路由
-        const apiUrl = `/api/yahoo?url=v8/finance/chart/${symbol}?interval=1d&range=3mo`
-        const response = await axios.get(apiUrl, { timeout: 10000 })
-        const data = response.data
+        let response
+        if (isGitHubPages) {
+          // GitHub Pages环境：使用CORS代理
+          response = await this.fetchWithCorsProxies(directUrl, { timeout: 12000 })
+          // 解析返回的数据
+          const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
           
-        if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
-          throw new Error('未找到股票数据')
-        }
+          if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+            throw new Error('未找到股票数据')
+          }
+          
+          const result = this.parseUSStockData(data, symbol)
+          // 获取历史数据（29条）
+          const historyData = this.parseUSStockHistoryData(data, symbol)
+          // 合并当前数据和历史数据（当前数据在前，历史数据在后）
+          return [...result, ...historyData]
+        } else {
+          // Netlify/Vercel环境：使用API路由
+          const apiUrl = `/api/yahoo?url=v8/finance/chart/${symbol}?interval=1d&range=3mo`
+          response = await axios.get(apiUrl, { timeout: 10000 })
+          const data = response.data
+          
+          if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+            throw new Error('未找到股票数据')
+          }
 
-        const result = this.parseUSStockData(data, symbol)
-        // 获取历史数据（29条）
-        const historyData = this.parseUSStockHistoryData(data, symbol)
-        // 合并当前数据和历史数据（当前数据在前，历史数据在后）
-        return [...result, ...historyData]
+          const result = this.parseUSStockData(data, symbol)
+          // 获取历史数据（29条）
+          const historyData = this.parseUSStockHistoryData(data, symbol)
+          // 合并当前数据和历史数据（当前数据在前，历史数据在后）
+          return [...result, ...historyData]
+        }
       } catch (err1) {
         // 方法2: 直接调用（备用方案）
         try {
@@ -1134,13 +1182,35 @@ export default {
       const code = this.stockCode.trim().padStart(5, '0')
       const secid = `116.${code}` // 港股secid格式：116.00700
       const fields = 'f43,f57,f58,f169,f170,f46,f44,f51,f168,f47,f164,f163,f116,f60,f45,f52,f50,f48,f167,f117,f71,f161,f49,f530,f135,f136,f104,f105,f162,f107,f19,f20,f21,f84,f85,f92'
-      // 统一使用API路由（Vercel Serverless Functions或Vite代理）
+      // 检测部署环境
+      const isProduction = import.meta.env.PROD
+      const isGitHubPages = isProduction && window.location.hostname.includes('github.io')
+      const directUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+      
       try {
-        // 使用相对路径的API路由
-        const apiUrl = `/api/eastmoney?url=api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
-        const response = await axios.get(apiUrl, {
-          timeout: 8000
-        })
+        let response
+        if (isGitHubPages) {
+          // GitHub Pages环境：使用CORS代理
+          const proxyResponse = await this.fetchWithCorsProxies(directUrl, {
+            timeout: 10000
+          })
+          // 处理不同代理返回的数据格式
+          let data
+          if (typeof proxyResponse.data === 'string') {
+            data = JSON.parse(proxyResponse.data)
+          } else if (proxyResponse.data && proxyResponse.data.contents) {
+            data = JSON.parse(proxyResponse.data.contents)
+          } else {
+            data = proxyResponse.data
+          }
+          response = { data: data }
+        } else {
+          // Netlify/Vercel环境：使用API路由
+          const apiUrl = `/api/eastmoney?url=api/qt/stock/get?fltt=2&invt=2&secid=${secid}&fields=${fields}`
+          response = await axios.get(apiUrl, {
+            timeout: 8000
+          })
+        }
         
         if (response.data && response.data.data) {
           const result = this.parseHKStockDataFromEastMoney(response.data, code)
