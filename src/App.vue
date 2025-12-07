@@ -437,6 +437,15 @@ export default {
 
     async fetchAShareIndustry(code) {
       // 从API获取行业信息
+      // 在 EdgeOne Pages 环境下，直接返回空字符串（避免 CORS 错误）
+      const isProduction = import.meta.env.PROD
+      const isEdgeOnePages = isProduction && (window.location.hostname.includes('edgeone.cool') || window.location.hostname.includes('edgeone.ai'))
+      
+      if (isEdgeOnePages) {
+        // EdgeOne Pages 环境：跳过此 API 调用（避免 CORS 错误）
+        return ''
+      }
+      
       try {
         const url = `https://api.mairuiapi.com/hszg/zg/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
         const response = await axios.get(url, {
@@ -464,6 +473,15 @@ export default {
 
     async fetchAShareMarketData(code) {
       // 从API获取市场数据（涨跌额、涨跌幅、换手率、量比等）
+      // 在 EdgeOne Pages 环境下，直接返回 null（避免 CORS 错误）
+      const isProduction = import.meta.env.PROD
+      const isEdgeOnePages = isProduction && (window.location.hostname.includes('edgeone.cool') || window.location.hostname.includes('edgeone.ai'))
+      
+      if (isEdgeOnePages) {
+        // EdgeOne Pages 环境：跳过此 API 调用（避免 CORS 错误）
+        return null
+      }
+      
       try {
         const url = `https://api.mairuiapi.com/hsrl/ssjy/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
         const response = await axios.get(url, {
