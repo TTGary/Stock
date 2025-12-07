@@ -267,10 +267,34 @@ export default {
           })
         } else {
           // EdgeOne Pages/Vercel/Netlify环境：使用API路由（边缘函数）
-          response = await axios.get(`/api/sina?url=list=${fullCode}`, {
-            responseType: 'text',
-            timeout: 10000 // 10秒超时
-          })
+          try {
+            response = await axios.get(`/api/sina?url=list=${fullCode}`, {
+              responseType: 'text',
+              timeout: 10000 // 10秒超时
+            })
+            // 检查是否是错误响应（边缘函数返回的错误JSON）
+            if (typeof response.data === 'string' && response.data.startsWith('{') && response.data.includes('"error"')) {
+              try {
+                const errorData = JSON.parse(response.data)
+                if (errorData.error) {
+                  throw new Error(`边缘函数错误: ${errorData.error}`)
+                }
+              } catch (e) {
+                // 如果不是JSON错误，继续处理
+              }
+            }
+          } catch (apiError) {
+            // 如果是网络错误或超时，抛出更详细的错误
+            if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) {
+              throw new Error('边缘函数请求超时，请稍后重试')
+            } else if (apiError.response && apiError.response.status === 500) {
+              // 边缘函数返回500错误
+              const errorMsg = apiError.response.data?.error || apiError.message
+              throw new Error(`边缘函数错误: ${errorMsg}`)
+            } else {
+              throw apiError
+            }
+          }
         }
         if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
           throw new Error('股票代码不存在或数据获取失败')
@@ -319,8 +343,9 @@ export default {
             // GitHub Pages：已经尝试过CORS代理，这里不再重复
             throw new Error('GitHub Pages环境：CORS代理已失败')
           } else if (isEdgeOnePages) {
-            // EdgeOne Pages：边缘函数已失败，不再尝试CORS代理（避免CORS错误）
-            throw new Error('EdgeOne Pages环境：边缘函数已失败，请检查边缘函数配置')
+            // EdgeOne Pages：边缘函数已失败，提供更详细的错误信息
+            const errorMsg = err1.message || '未知错误'
+            throw new Error(`EdgeOne Pages环境：边缘函数失败 (${errorMsg})。请检查：1. 边缘函数是否正确部署 2. 网络连接是否正常 3. 股票代码是否正确`)
           } else {
             // Vercel/Netlify：尝试CORS代理作为备用
             response = await this.fetchWithCorsProxies(`https://hq.sinajs.cn/list=${fullCode}`, {
