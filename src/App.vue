@@ -346,6 +346,11 @@ export default {
         if (!response.data || response.data.includes('FAILED') || response.data.includes('不存在')) {
           throw new Error('股票代码不存在或数据获取失败')
         }
+        
+        // 调试：检查数据格式
+        console.log('获取到的数据长度:', response.data.length)
+        console.log('数据前100个字符:', response.data.substring(0, 100))
+        
         // 同时获取详细信息、行业信息和市场数据（不阻塞主流程）
         const [detailData, industry, marketData] = await Promise.all([
           Promise.race([
@@ -377,11 +382,22 @@ export default {
           return []
         })
         
-        const currentData = this.parseAShareData(response.data, code, detailData, industry, marketData)
+        let currentData
+        try {
+          currentData = this.parseAShareData(response.data, code, detailData, industry, marketData)
+          console.log('解析后的数据:', currentData)
+        } catch (parseError) {
+          console.error('数据解析失败:', parseError.message)
+          console.error('原始数据:', response.data)
+          throw new Error(`数据解析失败: ${parseError.message}`)
+        }
+        
         // 将实时数据的基本信息填充到历史数据中
         const enrichedHistoryData = this.enrichHistoryData(historyData, currentData[0])
         // 合并当前数据和历史数据（当前数据在前，历史数据在后）
-        return [...currentData, ...enrichedHistoryData]
+        const result = [...currentData, ...enrichedHistoryData]
+        console.log('最终返回的数据条数:', result.length)
+        return result
       } catch (err1) {
         // 方法2: 备用方案（如果主方案失败）
         try {
