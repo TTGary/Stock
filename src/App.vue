@@ -445,40 +445,56 @@ export default {
         
         // 如果是GitHub Pages，直接使用CORS代理（因为GitHub Pages不支持Serverless Functions）
         if (isGitHubPages) {
-          // GitHub Pages环境：使用CORS代理
-          try {
-            const proxyResponse = await this.fetchWithCorsProxies(directUrl1, {
-              timeout: 10000
-            })
-            // 处理不同代理返回的数据格式
-            let data
-            if (typeof proxyResponse.data === 'string') {
-              data = JSON.parse(proxyResponse.data)
-            } else if (proxyResponse.data && proxyResponse.data.contents) {
-              data = JSON.parse(proxyResponse.data.contents)
-            } else {
-              data = proxyResponse.data
+          // GitHub Pages环境：使用CORS代理，尝试多个API端点
+          const urlsToTry = [
+            directUrl1, // 标准格式
+            `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b`, // 带ut参数
+            `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=${fields}`, // 简化格式
+          ]
+          
+          for (const url of urlsToTry) {
+            try {
+              const proxyResponse = await this.fetchWithCorsProxies(url, {
+                timeout: 10000
+              })
+              // 处理不同代理返回的数据格式
+              let data
+              if (typeof proxyResponse.data === 'string') {
+                data = JSON.parse(proxyResponse.data)
+              } else if (proxyResponse.data && proxyResponse.data.contents) {
+                data = JSON.parse(proxyResponse.data.contents)
+              } else {
+                data = proxyResponse.data
+              }
+              // 检查返回码和数据
+              if (data && data.rc === 0 && data.data) {
+                return data
+              } else if (data && data.data) {
+                // 即使rc不是0，只要有data也返回
+                return data
+              }
+            } catch (err) {
+              // 继续尝试下一个URL
+              continue
             }
-            if (data && data.rc === 0 && data.data) {
-              return data
-            }
-          } catch (err) {
-            console.warn('GitHub Pages环境：CORS代理获取详细信息失败:', err.message)
-            return null
           }
+          console.warn('GitHub Pages环境：所有CORS代理方案都失败')
+          return null
         } else {
-          // Netlify/Vercel环境：使用API路由
+          // Netlify/Vercel环境：使用API路由，尝试多个端点
           const apiEndpoints = [
             // 方案1: 标准格式（不带额外参数）
             `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}`,
             // 方案2: 带ut参数
             `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fltt=2&invt=2&fields=${fields}&ut=fa5fd1943c7b386f172d6893dbfba10b`,
+            // 方案3: 简化格式
+            `/api/eastmoney?url=api/qt/stock/get?secid=${secid}&fields=${fields}`,
           ]
           
           for (const apiUrl of apiEndpoints) {
             try {
               const response = await axios.get(apiUrl, {
-                timeout: 8000
+                timeout: 10000
               })
               
               if (response.data) {
@@ -489,14 +505,17 @@ export default {
                   return apiResponse
                 } else if (apiResponse.rc === 102 || apiResponse.data === null || apiResponse.data === undefined) {
                   // rc: 102 表示参数错误，继续尝试下一个端点
+                  console.warn(`API端点返回rc:102，尝试下一个: ${apiUrl}`)
                   continue
                 } else if (apiResponse.data) {
-                  // 有其他返回码但data存在
+                  // 有其他返回码但data存在（可能是其他成功码，如rc:1）
+                  console.warn(`API返回非0返回码但data存在: rc=${apiResponse.rc}`)
                   return apiResponse
                 }
               }
             } catch (err) {
               // 继续尝试下一个端点
+              console.warn(`API端点请求失败: ${apiUrl}`, err.message)
               continue
             }
           }
