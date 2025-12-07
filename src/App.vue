@@ -359,7 +359,7 @@ export default {
         console.log('数据前100个字符:', response.data.substring(0, 100))
         
         // 同时获取详细信息、行业信息和市场数据（不阻塞主流程）
-        const [detailData, industry, marketData] = await Promise.all([
+        const [detailData, industry, marketDataFromAPI] = await Promise.all([
           Promise.race([
           this.fetchAShareDetail(code, marketPrefix),
           new Promise((resolve) => setTimeout(() => resolve(null), 8000)) // 8秒超时，给API更多时间
@@ -391,7 +391,8 @@ export default {
         
         let currentData
         try {
-          // 如果 marketData 为空，尝试从历史数据中获取换手率（仅作为备选）
+          // 如果 marketDataFromAPI 为空，尝试从历史数据中获取换手率（仅作为备选）
+          let marketData = marketDataFromAPI
           if (!marketData && historyData && historyData.length > 0 && historyData[0]['换手率']) {
             const trStr = historyData[0]['换手率'].toString().replace('%', '')
             const turnoverRateFromHistory = parseFloat(trStr) || 0
@@ -440,7 +441,7 @@ export default {
             throw new Error('股票代码不存在或数据获取失败')
           }
           // 尝试获取详细信息、行业信息和市场数据，但不阻塞
-          const [detailData, industry, marketData] = await Promise.all([
+          const [detailData, industry, marketDataFromAPI] = await Promise.all([
             Promise.race([
             this.fetchAShareDetail(code, marketPrefix),
             new Promise((resolve) => setTimeout(() => resolve(null), 5000)) // 5秒超时
@@ -469,7 +470,8 @@ export default {
             return []
           })
           
-          // 如果 marketData 为空，尝试从历史数据中获取换手率（仅作为备选）
+          // 如果 marketDataFromAPI 为空，尝试从历史数据中获取换手率（仅作为备选）
+          let marketData = marketDataFromAPI
           if (!marketData && historyData && historyData.length > 0 && historyData[0]['换手率']) {
             const trStr = historyData[0]['换手率'].toString().replace('%', '')
             const turnoverRateFromHistory = parseFloat(trStr) || 0
