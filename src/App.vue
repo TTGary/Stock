@@ -276,30 +276,39 @@ export default {
             // 处理边缘函数返回的 ArrayBuffer（新浪API使用GBK编码）
             let textData
             if (response.data instanceof ArrayBuffer) {
-              // 尝试使用 GBK 解码
-              try {
-                // 注意：浏览器可能不支持 'gbk'，尝试 'gb2312' 或 'gb18030'
-                const decoder = new TextDecoder('gb2312', { fatal: false })
-                textData = decoder.decode(response.data)
-                
-                // 如果解码失败或包含乱码，尝试其他编码
-                if (!textData || textData.includes('\ufffd')) {
-                  try {
-                    const decoder2 = new TextDecoder('gb18030', { fatal: false })
-                    textData = decoder2.decode(response.data)
-                  } catch (e2) {
-                    // 如果还是失败，尝试 UTF-8（可能已经是UTF-8）
-                    const decoder3 = new TextDecoder('utf-8', { fatal: false })
-                    textData = decoder3.decode(response.data)
+              // 尝试多种编码方式解码
+              const encodings = ['gb18030', 'gb2312', 'gbk', 'utf-8']
+              let decoded = false
+              
+              for (const encoding of encodings) {
+                try {
+                  const decoder = new TextDecoder(encoding, { fatal: false })
+                  const testText = decoder.decode(response.data)
+                  
+                  // 检查解码结果是否有效（不包含替换字符，且包含中文字符或符合新浪API格式）
+                  if (testText && !testText.includes('\ufffd')) {
+                    // 检查是否符合新浪API的数据格式（应该包含逗号分隔的多个字段）
+                    if (testText.includes(',') && testText.length > 10) {
+                      textData = testText
+                      decoded = true
+                      console.log(`成功使用 ${encoding} 编码解码数据`)
+                      break
+                    }
                   }
+                } catch (e) {
+                  // 继续尝试下一个编码
+                  continue
                 }
-              } catch (e) {
-                // 如果 GBK 解码失败，尝试 UTF-8
+              }
+              
+              if (!decoded) {
+                // 如果所有编码都失败，尝试使用 UTF-8（可能已经是UTF-8）
                 try {
                   const decoder = new TextDecoder('utf-8', { fatal: false })
                   textData = decoder.decode(response.data)
+                  console.warn('使用 UTF-8 编码解码，可能包含乱码')
                 } catch (e2) {
-                  throw new Error('无法解码响应数据')
+                  throw new Error('无法解码响应数据，请检查边缘函数配置')
                 }
               }
             } else if (typeof response.data === 'string') {
@@ -316,7 +325,7 @@ export default {
               }
               textData = response.data
             } else {
-              throw new Error('未知的响应格式')
+              throw new Error('未知的响应格式，响应类型: ' + typeof response.data)
             }
             
             // 将解码后的文本数据赋值给 response.data
