@@ -1,9 +1,22 @@
 {
   "outputDirectory": "docs",
-  "functions": {
-    "api/sina": "edge-functions/sina.js",
-    "api/yahoo": "edge-functions/yahoo.js",
-    "api/eastmoney": "edge-functions/eastmoney.js"
-  }
+  "routes": [
+    {
+      "src": "/api/sina(.*)",
+      "dest": "/edge-functions/sina.js"
+    },
+    {
+      "src": "/api/yahoo(.*)",
+      "dest": "/edge-functions/yahoo.js"
+    },
+    {
+      "src": "/api/eastmoney(.*)",
+      "dest": "/edge-functions/eastmoney.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
 }
 
