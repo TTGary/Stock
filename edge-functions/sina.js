@@ -28,33 +28,17 @@ export async function onRequest({ request }) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     
-    // 获取响应数据，新浪API可能返回GBK编码
-    // 注意：EdgeOne Pages 边缘函数环境可能不支持 GBK 解码
-    // 这里先尝试 UTF-8，如果遇到乱码，可能需要在前端处理
+    // 获取响应数据，新浪API返回GBK编码
+    // EdgeOne Pages 边缘函数环境不支持 GBK 解码
+    // 返回原始二进制数据，让前端使用 TextDecoder 处理编码
     const arrayBuffer = await response.arrayBuffer()
     
-    // 尝试使用 UTF-8 解码
-    let text
-    try {
-      const decoder = new TextDecoder('utf-8', { fatal: false })
-      text = decoder.decode(arrayBuffer)
-      
-      // 如果解码结果看起来不正常（包含乱码字符），尝试其他方法
-      // 注意：EdgeOne Pages 可能不支持 GBK，如果遇到乱码，需要在前端处理
-      if (text.includes('') || text.includes('\ufffd')) {
-        // 如果包含替换字符，说明编码可能不对
-        // 但边缘函数环境可能无法处理GBK，所以先返回，让前端处理
-        console.warn('可能遇到编码问题，建议在前端处理')
-      }
-    } catch (e) {
-      // 如果解码失败，尝试使用默认编码
-      text = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuffer)
-    }
-    
-    return new Response(text, {
+    // 直接返回 ArrayBuffer，前端会使用 TextDecoder 处理
+    // 前端可以使用 'gbk' 或 'gb2312' 编码来解码
+    return new Response(arrayBuffer, {
       status: 200,
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Type': 'text/plain; charset=gbk',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type'

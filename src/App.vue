@@ -269,20 +269,58 @@ export default {
           // EdgeOne Pages/Vercel/Netlify环境：使用API路由（边缘函数）
           try {
             response = await axios.get(`/api/sina?url=list=${fullCode}`, {
-              responseType: 'text',
+              responseType: 'arraybuffer', // 接收二进制数据
               timeout: 10000 // 10秒超时
             })
-            // 检查是否是错误响应（边缘函数返回的错误JSON）
-            if (typeof response.data === 'string' && response.data.startsWith('{') && response.data.includes('"error"')) {
+            
+            // 处理边缘函数返回的 ArrayBuffer（新浪API使用GBK编码）
+            let textData
+            if (response.data instanceof ArrayBuffer) {
+              // 尝试使用 GBK 解码
               try {
-                const errorData = JSON.parse(response.data)
-                if (errorData.error) {
-                  throw new Error(`边缘函数错误: ${errorData.error}`)
+                // 注意：浏览器可能不支持 'gbk'，尝试 'gb2312' 或 'gb18030'
+                const decoder = new TextDecoder('gb2312', { fatal: false })
+                textData = decoder.decode(response.data)
+                
+                // 如果解码失败或包含乱码，尝试其他编码
+                if (!textData || textData.includes('\ufffd')) {
+                  try {
+                    const decoder2 = new TextDecoder('gb18030', { fatal: false })
+                    textData = decoder2.decode(response.data)
+                  } catch (e2) {
+                    // 如果还是失败，尝试 UTF-8（可能已经是UTF-8）
+                    const decoder3 = new TextDecoder('utf-8', { fatal: false })
+                    textData = decoder3.decode(response.data)
+                  }
                 }
               } catch (e) {
-                // 如果不是JSON错误，继续处理
+                // 如果 GBK 解码失败，尝试 UTF-8
+                try {
+                  const decoder = new TextDecoder('utf-8', { fatal: false })
+                  textData = decoder.decode(response.data)
+                } catch (e2) {
+                  throw new Error('无法解码响应数据')
+                }
               }
+            } else if (typeof response.data === 'string') {
+              // 如果已经是字符串，检查是否是错误响应
+              if (response.data.startsWith('{') && response.data.includes('"error"')) {
+                try {
+                  const errorData = JSON.parse(response.data)
+                  if (errorData.error) {
+                    throw new Error(`边缘函数错误: ${errorData.error}`)
+                  }
+                } catch (e) {
+                  // 如果不是JSON错误，继续处理
+                }
+              }
+              textData = response.data
+            } else {
+              throw new Error('未知的响应格式')
             }
+            
+            // 将解码后的文本数据赋值给 response.data
+            response.data = textData
           } catch (apiError) {
             // 如果是网络错误或超时，抛出更详细的错误
             if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) {
