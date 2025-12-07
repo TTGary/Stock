@@ -3,15 +3,11 @@
 export async function onRequest({ request }) {
   try {
     const url = new URL(request.url)
-    const path = url.pathname
-    
-    // 解析路径：/api/mairui/industry/002160 或 /api/mairui/market/002160
-    const pathParts = path.split('/')
-    const type = pathParts[3] // industry 或 market
-    const code = pathParts[4] // 股票代码
+    const type = url.searchParams.get('type') // industry 或 market
+    const code = url.searchParams.get('code') // 股票代码
     
     if (!type || !code) {
-      return new Response(JSON.stringify({ error: '缺少参数' }), {
+      return new Response(JSON.stringify({ error: '缺少参数：需要type和code' }), {
         status: 400,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -30,7 +26,7 @@ export async function onRequest({ request }) {
       // 市场数据API
       targetUrl = `https://api.mairuiapi.com/hsrl/ssjy/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
     } else {
-      return new Response(JSON.stringify({ error: '无效的类型参数' }), {
+      return new Response(JSON.stringify({ error: '无效的类型参数，type必须是industry或market' }), {
         status: 400,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',

@@ -476,9 +476,12 @@ export default {
         let response
         if (isEdgeOnePages) {
           // EdgeOne Pages 环境：使用边缘函数代理
-          response = await axios.get(`/api/mairui/industry/${code}`, {
+          const apiUrl = `/api/mairui?type=industry&code=${code}`
+          console.log('获取行业信息，调用边缘函数:', apiUrl)
+          response = await axios.get(apiUrl, {
             timeout: 5000
           })
+          console.log('行业信息API响应:', response.data)
         } else {
           // 其他环境：直接调用API
           const url = `https://api.mairuiapi.com/hszg/zg/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
@@ -502,6 +505,7 @@ export default {
         }
         return ''
       } catch (err) {
+        console.warn('获取行业信息失败:', err.message, err.response?.data)
         return ''
       }
     },
@@ -515,9 +519,12 @@ export default {
         let response
         if (isEdgeOnePages) {
           // EdgeOne Pages 环境：使用边缘函数代理
-          response = await axios.get(`/api/mairui/market/${code}`, {
+          const apiUrl = `/api/mairui?type=market&code=${code}`
+          console.log('获取市场数据，调用边缘函数:', apiUrl)
+          response = await axios.get(apiUrl, {
             timeout: 5000
           })
+          console.log('市场数据API响应:', response.data)
         } else {
           // 其他环境：直接调用API
           const url = `https://api.mairuiapi.com/hsrl/ssjy/${code}/92828F2B-B0C0-4DC1-8E13-762688E6F408`
@@ -539,6 +546,7 @@ export default {
         }
         return null
       } catch (err) {
+        console.warn('获取市场数据失败:', err.message, err.response?.data)
         return null
       }
     },
