@@ -441,9 +441,9 @@ export default {
         return null
       }
       
-      // 使用东方财富API（支持CORS）
+      // 使用东方财富API（支持CORS）- 添加f84总股本,f85流通股本,f127行业
       const secid = `${marketPrefix === 'sh' ? '1' : '0'}.${code}`
-      const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f57,f58,f60,f116,f117,f162,f163,f164,f167,f168,f169,f170&_=${Date.now()}`
+      const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f57,f58,f60,f84,f85,f116,f117,f127,f162,f163,f164,f167,f168,f169,f170&_=${Date.now()}`
       
       try {
         const response = await axios.get(url, { timeout: 10000 })
@@ -656,9 +656,9 @@ export default {
       const fullCode = `${marketPrefix}${code}`
       
       const fetchRealTimeData = async () => {
-        // 使用东方财富API（支持CORS）
+        // 使用东方财富API（支持CORS）- 添加f84总股本,f85流通股本,f127行业
         const secid = `${marketPrefix === 'sh' ? '1' : '0'}.${code}`
-        const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f57,f58,f60,f116,f117,f162,f163,f164,f167,f168,f169,f170&_=${Date.now()}`
+        const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f57,f58,f60,f84,f85,f116,f117,f127,f162,f163,f164,f167,f168,f169,f170&_=${Date.now()}`
         
         try {
           const response = await axios.get(url, { timeout: 10000 })
@@ -733,28 +733,34 @@ export default {
       const d = response.data
       if (!d) throw new Error('数据为空')
       
-      const currentPrice = d.f43 / 100 || 0
-      const prevClose = d.f60 / 100 || 0
-      const openPrice = d.f46 / 100 || 0
-      const highPrice = d.f44 / 100 || 0
-      const lowPrice = d.f45 / 100 || 0
-      const volume = d.f47 || 0
+      // 东方财富API返回的价格已经是实际值（不需要除100）
+      const currentPrice = d.f43 || 0
+      const prevClose = d.f60 || 0
+      const openPrice = d.f46 || 0
+      const highPrice = d.f44 || 0
+      const lowPrice = d.f45 || 0
+      // f47是成交量（股），需要除以100转换为手
+      const volumeShares = d.f47 || 0
+      const volumeHands = volumeShares / 100
       const amount = d.f48 || 0
-      const change = d.f169 / 100 || 0
-      const changePercent = d.f170 / 100 || 0
-      const turnoverRate = d.f168 / 100 || 0
+      const change = d.f169 || 0
+      const changePercent = d.f170 || 0
+      const turnoverRate = d.f168 || 0
       const amplitude = prevClose > 0 ? (((highPrice - lowPrice) / prevClose) * 100).toFixed(2) : '0.00'
       const totalMarketValue = d.f116 || 0
       const tradableMarketValue = d.f117 || 0
-      const dynamicPE = d.f162 / 100 || 0
-      const staticPE = d.f163 / 100 || 0
-      const peTTM = d.f164 / 100 || 0
-      const PB = d.f167 / 100 || 0
+      const totalShares = d.f84 || 0
+      const tradableShares = d.f85 || 0
+      const industry = d.f127 || ''
+      const dynamicPE = d.f162 || 0
+      const staticPE = d.f163 || 0
+      const peTTM = d.f164 || 0
+      const PB = d.f167 || 0
       
       return [{
         '股票代码': code,
         '股票名称': d.f58 || code,
-        '行业': '',
+        '行业': industry,
         '日期': new Date().toLocaleDateString(),
         '当前价格': currentPrice ? currentPrice.toFixed(2) : '',
         '昨收': prevClose ? prevClose.toFixed(2) : '',
@@ -767,12 +773,12 @@ export default {
         '今日最低价': lowPrice ? lowPrice.toFixed(2) : '',
         '均价': currentPrice ? currentPrice.toFixed(2) : '',
         '振幅': amplitude + '%',
-        '成交量(手)': volume > 0 ? this.formatNumber(volume / 100, true) : '',
+        '成交量(手)': volumeHands > 0 ? this.formatNumber(volumeHands, true) : '',
         '金额': amount > 0 ? this.formatNumber(amount) : '',
-        '总手': volume > 0 ? this.formatNumber(volume / 100, true) : '',
+        '总手': volumeHands > 0 ? this.formatNumber(volumeHands, true) : '',
         '换手率': turnoverRate > 0 ? turnoverRate.toFixed(2) + '%' : '',
-        '总股本': '',
-        '流通股本': '',
+        '总股本': totalShares > 0 ? this.formatNumber(totalShares) : '',
+        '流通股本': tradableShares > 0 ? this.formatNumber(tradableShares) : '',
         '总市值': totalMarketValue > 0 ? this.formatNumber(totalMarketValue) : '',
         '流通市值': tradableMarketValue > 0 ? this.formatNumber(tradableMarketValue) : '',
         '动态市盈率': dynamicPE > 0 ? dynamicPE.toFixed(2) : '',
